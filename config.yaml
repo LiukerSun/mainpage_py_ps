@@ -1,0 +1,89 @@
+# 日志配置
+logging:
+  # 是否启用详细日志
+  enabled: true
+
+  # 日志级别 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  level: "INFO"
+
+  # 控制台输出配置
+  console:
+    # 是否启用控制台输出
+    enabled: true
+    # 是否使用颜色
+    use_colors: true
+    # 控制台日志级别
+    level: "INFO"
+
+  # 文件输出配置
+  file:
+    # 是否启用文件输出
+    enabled: true
+    # 文件日志级别
+    level: "DEBUG"
+    # 单个日志文件最大大小
+    max_size: "10MB"
+    # 保留的日志文件数量
+    backup_count: 5
+
+# 需要复制的文件列表
+copy_files:
+  # 模板文件
+  - source: "static/detail1.jpg"
+    description: "尺码表"
+
+  # 说明文档
+  - source: "static/detail2.jpg"
+    description: "购物指南"
+
+  # 其他资源文件
+  - source: "static/detail3.jpg"
+    description: "洗涤说明"
+
+# 文件复制配置
+copy_settings:
+  # 是否覆盖已存在的文件
+  overwrite: true
+
+  # 是否显示详细复制信息
+  verbose: true
+
+  # 是否在复制失败时继续处理其他文件
+  continue_on_error: true
+
+# 添加图层信息 记录图层顺序
+picture_layers:
+  # 第一个图层 - 货品图片
+  layer_1:
+    source: "${product_image}"
+    description: "商品主图"
+    width: 1000
+    height: 1000
+    x: 0
+    y: 0
+  # 第二个图层 - bg
+  layer_2:
+    source: "static/bg.png"
+    description: "背景图"
+    width: 1000
+    height: 1000
+    x: 0
+    y: 0
+  # 第三个图层 - 价格文字
+  layer_3:
+    type: "text"
+    text: "${price_text}"
+    description: "右下角价格"
+    font_size: 80
+    font_color: [255, 255, 255, 255] # 白色 RGBA
+    x: 710
+    y: 760
+
+# 输出图片质量 (1-100, 仅对JPEG有效)
+quality: 85
+
+# 画布尺寸 (宽度, 高度)
+canvas_size: [1000, 1000]
+
+# 背景颜色 RGBA
+background_color: [255, 255, 255, 255] # 白色背景

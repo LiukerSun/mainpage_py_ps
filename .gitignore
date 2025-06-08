@@ -1,0 +1,7 @@
+.cursorrules
+__pycache__/
+logs/
+*.png
+*.jpg
+*.jpeg
+

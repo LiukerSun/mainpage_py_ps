@@ -1,0 +1,23 @@
+# 商品价格配置文件
+# 格式: 货号: 价格信息
+
+# 价格配置说明
+price_config:
+  # 默认价格格式
+  default_format: "{price}"
+
+  # 默认价格（当找不到具体价格时使用）
+  default_price: "99.00"
+
+  # 价格显示设置
+  display_settings:
+    # 是否显示货币符号
+    show_currency: false
+    # 货币符号
+    currency_symbol: "¥"
+    # 小数位数
+    decimal_places: 1
+
+# 商品价格列表
+prices:
+  "A18453": "89.9"
