@@ -87,17 +87,14 @@ class PriceManager:
             product_code: 商品货号
 
         Returns:
-            str: 格式化后的价格字符串
+            str: 格式化后的价格字符串，如果未找到价格则返回"价格待定"
         """
         # 获取原始价格
         raw_price = self.prices.get(product_code)
 
         if raw_price is None:
-            # 使用默认价格
-            raw_price = self.price_config.get("default_price", "99.00")
-            self.logger.warning(
-                f"未找到商品 {product_code} 的价格，使用默认价格: {raw_price}"
-            )
+            self.logger.warning(f"未找到商品 {product_code} 的价格")
+            return "价格待定"
 
         # 格式化价格
         return self._format_price(raw_price)

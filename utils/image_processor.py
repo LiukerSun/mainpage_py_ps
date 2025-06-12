@@ -314,6 +314,42 @@ class ImageProcessor:
             self.logger.error(f"添加图片图层失败: {e}")
             return base_image
 
+    def calculate_max_layer_size(self) -> Tuple[int, int]:
+        """
+        计算所有图层中的最大尺寸
+
+        Returns:
+            Tuple[int, int]: 最大宽度和高度
+        """
+        max_width = 0
+        max_height = 0
+        
+        # 获取图层配置
+        picture_layers = self.config.get("picture_layers", {})
+        if not picture_layers:
+            return (1000, 1000)  # 默认尺寸
+            
+        for layer_name, layer_config in picture_layers.items():
+            # 获取图层位置和尺寸
+            x = layer_config.get("x", 0)
+            y = layer_config.get("y", 0)
+            width = layer_config.get("width", 0)
+            height = layer_config.get("height", 0)
+            
+            # 计算图层右下角坐标
+            right = x + width
+            bottom = y + height
+            
+            # 更新最大尺寸
+            max_width = max(max_width, right)
+            max_height = max(max_height, bottom)
+            
+        # 如果没有找到有效尺寸，返回默认值
+        if max_width == 0 or max_height == 0:
+            return (1000, 1000)
+            
+        return (max_width, max_height)
+
     def create_composite_image(
         self,
         output_path: str,
@@ -338,8 +374,12 @@ class ImageProcessor:
                 self.logger.error("未找到picture_layers配置")
                 return False
 
+            # 计算最大图层尺寸
+            max_size = self.calculate_max_layer_size()
+            self.logger.info(f"计算最大图层尺寸: {max_size}")
+
             # 创建基础画布
-            base_image = Image.new("RGBA", canvas_size, background_color)
+            base_image = Image.new("RGBA", max_size, background_color)
 
             # 按图层顺序处理
             layer_names = sorted(picture_layers.keys())

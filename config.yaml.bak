@@ -29,12 +29,12 @@ logging:
 # 需要复制的文件列表
 copy_files:
   # 尺码表
-  - source: "static/detail1.jpg"
-    description: "尺码表"
+  # - source: "static/detail1.jpg"
+  #   description: "尺码表"
 
   # 购物指南
-  - source: "static/detail2.jpg"
-    description: "购物指南"
+  # - source: "static/detail2.jpg"
+  #   description: "购物指南"
 
   # 洗涤说明
   # - source: "static/detail3.jpg"
@@ -59,26 +59,36 @@ picture_layers:
     description: "商品主图"
     width: 1000
     height: 1000
-    x: 0
-    y: 0
+    x: 900
+    y: 1800
+
   # 第二个图层 - bg
   layer_2:
-    source: "static/bg.png"
-    description: "背景图"
-    width: 1000
-    height: 1000
+    source: "static/key.png"
+    description: "证书"
+    width: 2480
+    height: 3508
     x: 0
     y: 0
-  # 第三个图层 - 价格文字
+
+  # 第三个图层 - 文件名文字
   layer_3:
     type: "text"
-    text: "${price_text}"
-    description: "右下角价格"
-    font_size: 80
-    font_color: [255, 255, 255, 255] # 白色 RGBA
-    x: 710
-    y: 760
-
+    text: "${file_name}"
+    description: "文件名"
+    font_size: 45
+    font_color: [0, 0, 0, 255]  # 黑色 RGBA
+    x: 1000
+    y: 1150
+  # 第三个图层 - 文件名文字
+  layer_4:
+    type: "text"
+    text: "Y${price_text}"
+    description: "价格"
+    font_size: 45
+    font_color: [0, 0, 0, 255]  # 黑色 RGBA
+    x: 1300
+    y: 1150
 # 输出图片质量 (1-100, 仅对JPEG有效)
 quality: 85
 

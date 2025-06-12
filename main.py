@@ -77,9 +77,14 @@ def process_single_image(
         bool: 处理是否成功
     """
     try:
-        # 提取货号（文件名不含扩展名）
-        product_code = image_file.stem
-        logger.info(f"🖼️  处理商品: {product_code}")
+        # 提取货号（文件名不含扩展名，去掉_1后缀）
+        file_stem = image_file.stem
+        if file_stem.endswith('_1'):
+            product_code = file_stem[:-2]  # 去掉最后的"_1"
+        else:
+            product_code = file_stem
+            
+        logger.info(f"🖼️  处理商品: {product_code} (来源文件: {image_file.name})")
 
         # 获取商品价格
         price_text = price_manager.get_price(product_code)
@@ -90,6 +95,7 @@ def process_single_image(
             {
                 Config.SOURCE_DATA_KEY: str(image_file),
                 Config.PRICE_TEXT_KEY: price_text,
+                "file_name": image_file.stem,  # 添加文件名（不含扩展名）
             }
         )
 
@@ -100,15 +106,13 @@ def process_single_image(
         # 确保输出目录存在
         result_dir.mkdir(parents=True, exist_ok=True)
 
-        # 获取配置的画布和质量设置
+        # 获取配置的背景颜色
         config = processor.config
-        canvas_size = tuple(config.get("canvas_size", [1000, 1000]))
         background_color = tuple(config.get("background_color", [255, 255, 255, 255]))
 
         # 创建合成图片
         success = processor.create_composite_image(
             str(output_path),
-            canvas_size=canvas_size,
             background_color=background_color,
         )
 
@@ -124,6 +128,96 @@ def process_single_image(
         return False
     except Exception as e:
         logger.error(f"  ❌ 处理 {image_file.name} 时发生未知错误: {e}")
+        return False
+
+
+def process_single_product(
+    processor: ImageProcessor, 
+    file_manager: FileManager, 
+    product_code: str, 
+    price_manager: PriceManager, 
+    logger: logging.Logger
+) -> bool:
+    """处理单个货号的所有相关图片
+    
+    Args:
+        processor: 图片处理器实例
+        file_manager: 文件管理器实例
+        product_code: 商品货号
+        price_manager: 价格管理器实例
+        logger: 日志记录器
+        
+    Returns:
+        bool: 处理是否成功
+    """
+    try:
+        logger.info(f"🛍️  处理商品货号: {product_code}")
+        
+        # 检查是否有价格
+        if not price_manager.has_price(product_code):
+            logger.warning(f"  ⚠️  跳过商品 {product_code}：未找到价格信息")
+            return False
+        
+        # 获取结果目录
+        result_dir = Path(Config.RESULT_DIR) / product_code
+        
+        # 复制该货号的所有相关图片文件到结果文件夹
+        copy_result = file_manager.copy_product_files_to_folder(product_code, result_dir)
+        
+        if not copy_result["success"]:
+            logger.error(f"  ❌ 复制文件失败: {copy_result.get('message', '未知错误')}")
+            return False
+        
+        logger.info(f"  📁 复制了 {copy_result['copied']} 个文件到 {result_dir}")
+        
+        # 获取主图片文件（_1结尾的）
+        main_image_file = copy_result["main_image"]
+        
+        if not main_image_file:
+            logger.warning(f"  ⚠️  未找到货号 {product_code} 的主图片文件（_1结尾）")
+            return False
+        
+        logger.info(f"  🖼️  处理主图片: {main_image_file.name}")
+        
+        # 获取商品价格
+        price_text = price_manager.get_price(product_code)
+        logger.debug(f"获取价格: {product_code} -> {price_text}")
+
+        # 设置商品图片路径、文字内容和价格信息
+        processor.update_source_data(
+            {
+                Config.SOURCE_DATA_KEY: str(main_image_file),
+                Config.PRICE_TEXT_KEY: price_text,
+                "file_name": main_image_file.stem,  # 添加文件名（不含扩展名）
+            }
+        )
+
+        # 构建修图输出路径
+        processed_output_path = result_dir / f"{product_code}{Config.PROCESSED_SUFFIX}"
+
+        # 获取配置的背景颜色
+        config = processor.config
+        background_color = tuple(config.get("background_color", [255, 255, 255, 255]))
+
+        # 创建合成图片
+        success = processor.create_composite_image(
+            str(processed_output_path),
+            background_color=background_color,
+        )
+
+        if success:
+            logger.info(f"  ✅ 修图成功: {processed_output_path.name}")
+            logger.info(f"  📷 原图保留: {main_image_file.name}")
+            return True
+        else:
+            logger.error(f"  ❌ 修图失败: {product_code}")
+            return False
+
+    except OSError as e:
+        logger.error(f"  ❌ 文件操作错误 {product_code}: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"  ❌ 处理货号 {product_code} 时发生未知错误: {e}")
         return False
 
 
@@ -158,25 +252,28 @@ def generate_processing_report(
 
 
 def process_images_with_layers(
-    file_manager: FileManager, image_files: List[Path]
+    file_manager: FileManager, product_codes: List[str]
 ) -> None:
     """使用图层配置处理商品图片
 
     Args:
         file_manager: 文件管理器实例
-        image_files: 待处理的图片文件列表
-
-    Raises:
-        RuntimeError: 图片处理过程中发生严重错误
+        product_codes: 待处理的商品货号列表
     """
     logger = get_logger("main")
 
     try:
         # 初始化图片处理器
         processor = setup_processor()
+        if not processor:
+            logger.error("❌ 图片处理器初始化失败，程序退出")
+            return
         
         # 初始化价格管理器
         price_manager = PriceManager(Config.DEFAULT_PRICE_PATH)
+        if not price_manager:
+            logger.error("❌ 价格管理器初始化失败，程序退出")
+            return
         
         # 显示价格统计信息
         price_stats = price_manager.get_price_statistics()
@@ -186,25 +283,44 @@ def process_images_with_layers(
         if price_stats['total_products'] > 0:
             logger.info(f"  平均价格: ¥{price_stats['average_price']:.2f}")
 
+        # 过滤掉没有价格的商品
+        valid_product_codes = []
+        skipped_product_codes = []
+        for product_code in product_codes:
+            if price_manager.has_price(product_code):
+                valid_product_codes.append(product_code)
+            else:
+                skipped_product_codes.append(product_code)
+                logger.warning(f"⚠️  跳过商品 {product_code}：未找到价格信息")
+
+        if skipped_product_codes:
+            logger.info(f"📋 跳过的商品（无价格）: {', '.join(skipped_product_codes)}")
+        
+        if not valid_product_codes:
+            logger.error("❌ 没有找到任何有价格的商品，程序退出")
+            return
+
+        logger.info(f"🎨 开始处理 {len(valid_product_codes)} 个有价格的商品...")
         success_count = 0
         failed_count = 0
 
-        # 处理每个商品图片
-        for image_file in image_files:
-            if process_single_image(processor, image_file, price_manager, logger):
+        # 按货号处理商品
+        for product_code in valid_product_codes:
+            if process_single_product(processor, file_manager, product_code, price_manager, logger):
                 success_count += 1
             else:
                 failed_count += 1
+                logger.error(f"❌ 处理商品 {product_code} 失败")
 
         # 生成处理结果报告
         generate_processing_report(success_count, failed_count, logger)
 
-    except (FileNotFoundError, RuntimeError) as e:
-        logger.error(f"图片处理器设置失败: {e}")
-        raise
+    except FileNotFoundError as e:
+        logger.error(f"❌ 图片处理器设置失败: {e}")
+        return
     except Exception as e:
-        logger.error(f"图片处理过程中发生未知错误: {e}")
-        raise RuntimeError(f"图片处理失败: {e}") from e
+        logger.error(f"❌ 图片处理过程中发生未知错误: {e}")
+        return
 
 
 def main() -> None:
@@ -217,45 +333,49 @@ def main() -> None:
 
         # 获取文件信息
         info = file_manager.get_file_info()
+        if not info or info.get('total_images', 0) == 0:
+            logger.error("❌ 获取文件信息失败，程序退出")
+            return
 
-        # 显示发现的文件
+        # 显示发现的文件（只处理以_1结尾的主图片）
         logger.info(f"发现图片文件: {info['total_images']} 个")
-        image_files = file_manager.get_all_image_files()
+        image_files = file_manager.get_main_image_files()  # 改为获取主图片文件
+        if not image_files:
+            logger.error("❌ 未找到任何主图片文件，程序退出")
+            return
+
+        logger.info(f"需要处理的主图片文件: {len(image_files)} 个")
         logger.info("文件列表:")
         for i, file_path in enumerate(image_files, 1):
             logger.info(f"  {i:2d}. {file_path.name}")
 
-        if not image_files:
-            logger.warning("未发现任何图片文件，程序退出")
-            return
-
         # 执行完整的文件处理流程（创建文件夹结构）
         result = file_manager.process_all()
 
-        if result["success"]:
-            logger.info(f"文件夹创建完成:")
-            logger.info(f"  货号数量: {result['total_products']} 个")
-            logger.info(f"  创建文件夹: {result['created_folders']} 个")
-            logger.info(f"  货号列表: {', '.join(result['product_codes'])}")
-
-            # 开始图片处理
-            logger.info("🎨 开始图片处理...")
-            process_images_with_layers(file_manager, image_files)
-
-        else:
+        if not result["success"]:
             error_msg = result.get("message", "未知错误")
-            logger.error(f"文件夹创建失败: {error_msg}")
-            raise RuntimeError(f"文件夹创建失败: {error_msg}")
+            logger.error(f"❌ 文件夹创建失败: {error_msg}")
+            return
+
+        logger.info(f"文件夹创建完成:")
+        logger.info(f"  货号数量: {result['total_products']} 个")
+        logger.info(f"  创建文件夹: {result['created_folders']} 个")
+        logger.info(f"  货号列表: {', '.join(result['product_codes'])}")
+
+        # 开始图片处理
+        logger.info("🎨 开始图片处理...")
+        product_codes = list(result['product_codes'])
+        process_images_with_layers(file_manager, product_codes)
 
     except FileNotFoundError as e:
-        logger.error(f"文件错误: {e}")
-        raise
+        logger.error(f"❌ 文件错误: {e}")
+        return
     except RuntimeError as e:
-        logger.error(f"运行时错误: {e}")
-        raise
+        logger.error(f"❌ 运行时错误: {e}")
+        return
     except Exception as e:
-        logger.error(f"程序运行发生未知错误: {e}")
-        raise RuntimeError(f"程序执行失败: {e}") from e
+        logger.error(f"❌ 程序运行发生未知错误: {e}")
+        return
 
 
 if __name__ == "__main__":

@@ -107,6 +107,17 @@ class FileManager:
         image_files = []
 
         try:
+            # 检查源目录是否存在
+            if not self.source_dir.exists():
+                self.logger.error(f"源目录不存在: {self.source_dir}")
+                return []
+
+            # 检查源目录是否是目录
+            if not self.source_dir.is_dir():
+                self.logger.error(f"源路径不是目录: {self.source_dir}")
+                return []
+
+            # 遍历目录获取图片文件
             for file_path in self.source_dir.iterdir():
                 if (
                     file_path.is_file()
@@ -114,34 +125,224 @@ class FileManager:
                 ):
                     image_files.append(file_path)
 
-            self.logger.info(f"发现 {len(image_files)} 个图片文件")
+            # 记录找到的文件数量
+            file_count = len(image_files)
+            if file_count > 0:
+                self.logger.info(f"发现 {file_count} 个图片文件")
+            else:
+                self.logger.warning(f"在目录 {self.source_dir} 中未找到任何图片文件")
+
             return sorted(image_files)
 
         except OSError as e:
             self.logger.error(f"读取源目录失败: {e}")
-            raise
+            return []
+        except Exception as e:
+            self.logger.error(f"获取图片文件时发生未知错误: {e}")
+            return []
+
+    def get_main_image_file_for_product(self, product_code: str) -> Optional[Path]:
+        """
+        获取指定货号的主图片文件
+        优先级：货号_1 > 货号（无后缀）
+
+        Args:
+            product_code: 商品货号
+
+        Returns:
+            Optional[Path]: 主图片文件路径，如果未找到返回None
+        """
+        try:
+            # 候选文件列表，按优先级排序
+            candidates = []
+            
+            for file_path in self.source_dir.iterdir():
+                if (
+                    file_path.is_file()
+                    and file_path.suffix.lower() in self.supported_formats
+                ):
+                    file_stem = file_path.stem
+                    
+                    # 检查是否匹配该货号
+                    if file_stem == f"{product_code}_1":
+                        # 最高优先级：货号_1
+                        candidates.insert(0, file_path)
+                    elif file_stem == product_code:
+                        # 次优先级：货号（无后缀）
+                        candidates.append(file_path)
+            
+            if candidates:
+                main_file = candidates[0]
+                self.logger.debug(f"货号 {product_code} 的主图片: {main_file.name}")
+                return main_file
+            else:
+                self.logger.warning(f"未找到货号 {product_code} 的主图片文件")
+                return None
+                
+        except OSError as e:
+            self.logger.error(f"查找货号 {product_code} 主图片失败: {e}")
+            return None
+
+    def get_main_image_files(self) -> List[Path]:
+        """
+        获取所有货号的主图片文件
+
+        Returns:
+            List[Path]: 主图片文件路径列表
+
+        Raises:
+            OSError: 读取目录失败
+        """
+        product_codes = self.extract_product_codes()
+        main_files = []
+        
+        for product_code in product_codes:
+            main_file = self.get_main_image_file_for_product(product_code)
+            if main_file:
+                main_files.append(main_file)
+        
+        self.logger.info(f"发现 {len(main_files)} 个主图片文件")
+        return sorted(main_files)
 
     def extract_product_codes(self) -> Set[str]:
         """
         从图片文件名中提取所有商品货号
+        支持两种格式：
+        1. 单张图片：A1079.jpg -> 货号: A1079
+        2. 多张图片：D010_1.jpg, D010_2.jpg -> 货号: D010
 
         Returns:
             Set[str]: 去重后的商品货号集合
         """
-        image_files = self.get_all_image_files()
-        product_codes = set()
+        try:
+            # 获取所有图片文件
+            image_files = self.get_all_image_files()
+            if not image_files:
+                self.logger.warning("未找到任何图片文件，无法提取货号")
+                return set()
 
-        for file_path in image_files:
-            # 提取文件名（不包含扩展名）作为货号
-            product_code = file_path.stem
+            product_codes = set()
 
-            # 可以在这里添加更复杂的货号提取逻辑
-            # 例如使用正则表达式匹配特定格式
-            if self._is_valid_product_code(product_code):
-                product_codes.add(product_code)
+            for file_path in image_files:
+                # 提取文件名（不包含扩展名）作为基础货号
+                file_stem = file_path.stem
+                
+                # 检查是否有下划线加数字的后缀模式
+                if '_' in file_stem and file_stem.split('_')[-1].isdigit():
+                    # 如果是 货号_数字 的格式，提取货号部分
+                    product_code = file_stem.rsplit('_', 1)[0]
+                else:
+                    # 如果没有后缀，整个文件名就是货号
+                    product_code = file_stem
 
-        self.logger.info(f"提取到 {len(product_codes)} 个有效货号")
-        return product_codes
+                # 验证货号有效性
+                if self._is_valid_product_code(product_code):
+                    product_codes.add(product_code)
+
+            # 记录提取到的货号数量
+            code_count = len(product_codes)
+            if code_count > 0:
+                self.logger.info(f"提取到 {code_count} 个有效货号")
+            else:
+                self.logger.warning("未找到任何有效的商品货号")
+
+            return product_codes
+
+        except Exception as e:
+            self.logger.error(f"提取商品货号时发生错误: {e}")
+            return set()
+
+    def get_product_related_files(self, product_code: str) -> List[Path]:
+        """
+        获取某个货号相关的所有图片文件
+
+        Args:
+            product_code: 商品货号
+
+        Returns:
+            List[Path]: 该货号相关的所有图片文件路径列表
+        """
+        related_files = []
+        
+        try:
+            for file_path in self.source_dir.iterdir():
+                if (
+                    file_path.is_file()
+                    and file_path.suffix.lower() in self.supported_formats
+                ):
+                    file_stem = file_path.stem
+                    
+                    # 检查文件名是否匹配该货号
+                    # 可能的格式：货号、货号_1、货号_2等
+                    if file_stem == product_code or file_stem.startswith(f"{product_code}_"):
+                        related_files.append(file_path)
+            
+            self.logger.debug(f"货号 {product_code} 找到 {len(related_files)} 个相关文件")
+            return sorted(related_files)
+            
+        except OSError as e:
+            self.logger.error(f"查找货号 {product_code} 相关文件失败: {e}")
+            return []
+
+    def copy_product_files_to_folder(self, product_code: str, target_folder: Path) -> Dict[str, Any]:
+        """
+        将某个货号的所有相关图片文件复制到目标文件夹
+
+        Args:
+            product_code: 商品货号
+            target_folder: 目标文件夹路径
+
+        Returns:
+            Dict[str, Any]: 复制结果统计
+        """
+        related_files = self.get_product_related_files(product_code)
+        
+        if not related_files:
+            return {
+                "success": False,
+                "message": f"未找到货号 {product_code} 的相关文件",
+                "copied": 0,
+                "main_image": None
+            }
+        
+        copied_count = 0
+        main_image_file = None
+        
+        try:
+            # 确保目标文件夹存在
+            target_folder.mkdir(parents=True, exist_ok=True)
+            
+            for file_path in related_files:
+                # 目标文件路径
+                target_path = target_folder / file_path.name
+                
+                # 复制文件
+                import shutil
+                shutil.copy2(file_path, target_path)
+                copied_count += 1
+                
+                self.logger.debug(f"复制文件: {file_path.name} -> {target_path}")
+            
+            # 获取主图片文件（使用新的方法）
+            main_image_file = self.get_main_image_file_for_product(product_code)
+            
+            self.logger.info(f"货号 {product_code} 复制了 {copied_count} 个文件到 {target_folder}")
+            
+            return {
+                "success": True,
+                "copied": copied_count,
+                "main_image": main_image_file,
+                "all_files": related_files
+            }
+            
+        except OSError as e:
+            self.logger.error(f"复制货号 {product_code} 文件失败: {e}")
+            return {
+                "success": False,
+                "message": f"复制失败: {e}",
+                "copied": copied_count,
+                "main_image": main_image_file
+            }
 
     def _is_valid_product_code(self, code: str) -> bool:
         """
@@ -271,9 +472,44 @@ class FileManager:
             Dict[str, Any]: 包含文件统计信息的字典
         """
         try:
+            # 获取所有图片文件
             image_files = self.get_all_image_files()
-            product_codes = self.extract_product_codes()
+            if not image_files:
+                self.logger.warning("未找到任何图片文件")
+                return {
+                    "total_images": 0,
+                    "total_products": 0,
+                    "source_directory": str(self.source_dir),
+                    "result_directory": str(self.result_dir),
+                    "supported_formats": list(self.supported_formats),
+                    "product_codes": [],
+                    "config_loaded": bool(self.config),
+                    "copy_files": [],
+                }
 
+            # 提取商品货号
+            product_codes = self.extract_product_codes()
+            if not product_codes:
+                self.logger.warning("未找到任何有效的商品货号")
+                return {
+                    "total_images": len(image_files),
+                    "total_products": 0,
+                    "source_directory": str(self.source_dir),
+                    "result_directory": str(self.result_dir),
+                    "supported_formats": list(self.supported_formats),
+                    "product_codes": [],
+                    "config_loaded": bool(self.config),
+                    "copy_files": [],
+                }
+
+            # 安全地获取copy_files列表
+            copy_files = []
+            if self.config and isinstance(self.config, dict):
+                copy_files_config = self.config.get("copy_files")
+                if isinstance(copy_files_config, list):
+                    copy_files = [f for f in copy_files_config if isinstance(f, dict) and f.get("source")]
+
+            # 返回完整的统计信息
             return {
                 "total_images": len(image_files),
                 "total_products": len(product_codes),
@@ -282,8 +518,9 @@ class FileManager:
                 "supported_formats": list(self.supported_formats),
                 "product_codes": sorted(list(product_codes)),
                 "config_loaded": bool(self.config),
-                "copy_files_count": len(self.config.get("copy_files", [])),
+                "copy_files": copy_files,
             }
+
         except Exception as e:
             self.logger.error(f"获取文件信息失败: {e}")
             return {
@@ -294,7 +531,7 @@ class FileManager:
                 "supported_formats": list(self.supported_formats),
                 "product_codes": [],
                 "config_loaded": False,
-                "copy_files_count": 0,
+                "copy_files": [],
                 "error": str(e),
             }
 
